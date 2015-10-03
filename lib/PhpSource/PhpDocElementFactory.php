@@ -39,6 +39,8 @@ class PhpDocElementFactory
             $dataType = 'int';
         } elseif ($dataType == 'double') {
             $dataType = 'float';
+        } elseif ($dataType == '\DateTime') {
+            $dataType = '\DateTimeInterface';
         }
 
         return new PhpDocElement('param', $dataType, $name, $description);

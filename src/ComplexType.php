@@ -111,8 +111,23 @@ class ComplexType extends Type
             $typeHint = Validator::validateTypeHint($type);
 
             $comment = new PhpDocComment();
-            $comment->setVar(PhpDocElementFactory::getVar($type, $name, ''));
-            $var = new PhpVariable('protected', $name, 'null', $comment);
+            if ($type == '\DateTime')
+                $comment->setVar(PhpDocElementFactory::getVar('string', $name, ''));
+            else
+                $comment->setVar(PhpDocElementFactory::getVar($type, $name, ''));
+
+            // FIXME: do this in a better way, ie configurable and better way to deterimine if it's a base language type
+            $baseTypes = ['int', 'float', 'string', '\DateTime', 'boolean'];
+            if (substr($type, -2) == '[]') {
+                $var = new PhpVariable('public', $name, 'null', $comment);
+                $constructorSource .= '  $this->' . $name . ' = [];' . PHP_EOL;
+            } elseif (array_search($type, $baseTypes) === false) {
+                $var = new PhpVariable('public', $name, 'null', $comment);
+                $constructorSource .= '  $this->' . $name . ' = new ' . $type . '();' . PHP_EOL;
+            } else {
+                $var = new PhpVariable('protected', $name, 'null', $comment);
+            }
+
             $class->addVariable($var);
 
             if (!$member->getNullable()) {
@@ -129,58 +144,62 @@ class ComplexType extends Type
                 $constructorParameters[$name] = $typeHint;
             }
 
-            $getterComment = new PhpDocComment();
-            $getterComment->setReturn(PhpDocElementFactory::getReturn($type, ''));
-            $getterCode = '';
-            if ($type == '\DateTime') {
-                $getterCode = '  if ($this->' . $name . ' == null) {' . PHP_EOL
-                    . '    return null;' . PHP_EOL
-                    . '  } else {' . PHP_EOL
-                    . '    try {' . PHP_EOL
-                    . '      return new \DateTime($this->' . $name . ');' . PHP_EOL
-                    . '    } catch (\Exception $e) {' . PHP_EOL
-                    . '      return false;' . PHP_EOL
-                    . '    }' . PHP_EOL
-                    . '  }' . PHP_EOL;
-            } else {
-                $getterCode = '  return $this->' . $name . ';' . PHP_EOL;
-            }
-            $getter = new PhpFunction('public', 'get' . ucfirst($name), '', $getterCode, $getterComment);
-            $accessors[] = $getter;
-
-            $setterComment = new PhpDocComment();
-            $setterComment->addParam(PhpDocElementFactory::getParam($type, $name, ''));
-            $setterComment->setReturn(PhpDocElementFactory::getReturn($this->phpNamespacedIdentifier, ''));
-            $setterCode = '';
-            if ($type == '\DateTime') {
-                if ($member->getNullable()) {
-                    $setterCode = '  if ($' . $name . ' == null) {' . PHP_EOL
-                        . '   $this->' . $name . ' = null;' . PHP_EOL
+            // FIXME: do this based on configuration
+            if ($var->getAccess() != 'public') {
+                $getterComment = new PhpDocComment();
+                $getterComment->setReturn(PhpDocElementFactory::getReturn($type, ''));
+                $getterCode = '';
+                if ($type == '\DateTime') {
+                    $getterCode = '  if ($this->' . $name . ' == null) {' . PHP_EOL
+                        . '    return null;' . PHP_EOL
                         . '  } else {' . PHP_EOL
-                        . '    $this->' . $name . ' = $' . $name . '->format(\DateTime::ATOM);' . PHP_EOL
+                        . '    try {' . PHP_EOL
+                        . '      return new \DateTime($this->' . $name . ');' . PHP_EOL
+                        . '    } catch (\Exception $e) {' . PHP_EOL
+                        . '      return false;' . PHP_EOL
+                        . '    }' . PHP_EOL
                         . '  }' . PHP_EOL;
                 } else {
-                    $setterCode = '  $this->' . $name . ' = $' . $name . '->format(\DateTime::ATOM);' . PHP_EOL;
+                    $getterCode = '  return $this->' . $name . ';' . PHP_EOL;
                 }
-            } else {
-                $setterCode = '  $this->' . $name . ' = $' . $name . ';' . PHP_EOL;
+                $getter = new PhpFunction('public', 'get' . ucfirst($name), '', $getterCode, $getterComment);
+                $accessors[] = $getter;
+
+                // add the setter to the code
+                $setterComment = new PhpDocComment();
+                $setterComment->addParam(PhpDocElementFactory::getParam($type, $name, ''));
+                $setterComment->setReturn(PhpDocElementFactory::getReturn($this->phpNamespacedIdentifier, ''));
+                $setterCode = '';
+                if ($type == '\DateTime') {
+                    if ($member->getNullable()) {
+                        $setterCode = '  if ($' . $name . ' == null) {' . PHP_EOL
+                            . '   $this->' . $name . ' = null;' . PHP_EOL
+                            . '  } else {' . PHP_EOL
+                            . '    $this->' . $name . ' = $' . $name . '->format(\DateTime::ATOM);' . PHP_EOL
+                            . '  }' . PHP_EOL;
+                    } else {
+                        $setterCode = '  $this->' . $name . ' = $' . $name . '->format(\DateTime::ATOM);' . PHP_EOL;
+                    }
+                } else {
+                    $setterCode = '  $this->' . $name . ' = $' . $name . ';' . PHP_EOL;
+                }
+                $setterCode .= '  return $this;' . PHP_EOL;
+                $setter = new PhpFunction(
+                    'public',
+                    'set' . ucfirst($name),
+                    $this->buildParametersString(
+                        array($name => $typeHint),
+                        true,
+                        // If the type of a member is nullable we should allow passing null to the setter. If the type
+                        // of the member is a class and not a primitive this is only possible if setter parameter has
+                        // a default null value. We can detect whether the type is a class by checking the type hint.
+                        $member->getNullable() && !empty($typeHint)
+                    ),
+                    $setterCode,
+                    $setterComment
+                );
+                $accessors[] = $setter;
             }
-            $setterCode .= '  return $this;' . PHP_EOL;
-            $setter = new PhpFunction(
-                'public',
-                'set' . ucfirst($name),
-                $this->buildParametersString(
-                    array($name => $typeHint),
-                    true,
-                    // If the type of a member is nullable we should allow passing null to the setter. If the type
-                    // of the member is a class and not a primitive this is only possible if setter parameter has
-                    // a default null value. We can detect whether the type is a class by checking the type hint.
-                    $member->getNullable() && !empty($typeHint)
-                ),
-                $setterCode,
-                $setterComment
-            );
-            $accessors[] = $setter;
         }
 
         $constructor = new PhpFunction(

@@ -247,7 +247,8 @@ class Validator
         if (substr($typeName, -2) == "[]") {
             $typeHint = 'array';
         } elseif ($typeName == '\DateTime') {
-            $typeHint = $typeName;
+//            $typeHint = $typeName;
+            $typeHint = '\DateTimeInterface';
         }
 
         return $typeHint;

@@ -1,6 +1,8 @@
-build
-wsdl2phpgenerator*.phar
-vendor
-tests/generated
-TAG_MESSAGE
+.idea/
+build/
+vendor/
+tests/generated/
 composer.lock
+composer.phar
+TAG_MESSAGE
+wsdl2phpgenerator*.phar
